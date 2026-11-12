@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Study Chatbot — Offline</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+  h1 { font-size: 1.4rem; }
+  .card { border: 1px solid #ccc; border-radius: 10px; padding: 1rem; margin-bottom: 1.5rem; }
+  input, select, textarea, button { width: 100%; padding: 0.6rem; margin: 0.3rem 0; font-size: 1rem; box-sizing: border-box; }
+  button { cursor: pointer; }
+  textarea { min-height: 120px; }
+  .answer { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 8px; }
+  .refused { color: #a00; font-weight: bold; }
+  .ok { color: #0a0; }
+  small { color: #666; }
+</style>
+</head>
+<body>
+<h1>📚 Study Chatbot <small>(offline — runs on your computer only)</small></h1>
+<p id="stats"><small>Loading notes…</small></p>
+
+<div class="card">
+  <h2>Ask a question</h2>
+  <input id="q" placeholder="e.g. what is 3NF?" onkeydown="if(event.key==='Enter') ask()">
+  <button onclick="ask()">Ask</button>
+  <p><small>Try:
+    <button type="button" style="width:auto" onclick="tryQ('what is 3NF?')">what is 3NF?</button>
+    <button type="button" style="width:auto" onclick="tryQ('what is BST?')">what is BST?</button>
+    <button type="button" style="width:auto" onclick="tryQ('what is quantum physics?')">what is quantum physics?</button>
+  </small></p>
+  <div id="answer"></div>
+</div>
+
+<div class="card">
+  <h2>Add / update a note</h2>
+  <p><small>This is the frontend part you asked for: you type the content here,
+  the backend saves it into the notes file and it becomes searchable at once.
+  Pick an existing file, or type a new one like <code>os.md</code>.</small></p>
+  <select id="file"></select>
+  <input id="newfile" placeholder="Or new file name, e.g. os.md (leave blank to use the one above)">
+  <input id="title" placeholder="Note title, e.g. Deadlock">
+  <textarea id="content" placeholder="Note content..."></textarea>
+  <button onclick="addNote()">Save note</button>
+  <div id="saved"></div>
+</div>
+
+<div class="card">
+  <h2>Edit / delete a note</h2>
+  <p><small>Pick a note, load it, change it, and save — or delete it.
+  The backend rewrites that section in its file and reloads, so the
+  change is searchable (or gone) at once.</small></p>
+  <select id="editNote"></select>
+  <button onclick="loadNote()">Load this note</button>
+  <input id="editTitle" placeholder="Note title">
+  <textarea id="editContent" placeholder="Note content..."></textarea>
+  <button onclick="saveEdit()">Save changes</button>
+  <button onclick="deleteNote()" style="background:#fdd">Delete this note</button>
+  <div id="editMsg"></div>
+</div>
+
+<div class="card">
+  <h2>Notes already in the system</h2>
+  <p><small>Dropped a file into the <code>notes</code> folder while the server
+  is running? The next question picks it up automatically — or click
+  Reload to force it now.</small></p>
+  <button onclick="reloadNotes()">Reload notes from folder</button>
+  <div id="reloadMsg"></div>
+  <ul id="list"></ul>
+</div>
+
+<script>
+let currentEdit = null;  // {file, title} of the note loaded for editing
+
+async function refreshList() {
+  const data = await (await fetch('/api/notes')).json();
+  document.getElementById('file').innerHTML =
+    data.files.map(f => `<option>${f}</option>`).join('');
+  document.getElementById('editNote').innerHTML =
+    data.notes.map(n => `<option value="${n.file}|||${n.title}">${n.title} (${n.file})</option>`).join('');
+  document.getElementById('stats').innerHTML =
+    `<small>${data.notes.length} note sections loaded from ${data.files.length} file(s).
+    Answers come only from these notes — anything else is refused, not invented.</small>`;
+  document.getElementById('list').innerHTML =
+    data.notes.map(n => `<li><b>${n.title}</b> <small>(${n.file})</small></li>`).join('');
+}
+
+async function loadNote() {
+  const [file, title] = document.getElementById('editNote').value.split('|||');
+  const data = await (await fetch(`/api/note?file=${encodeURIComponent(file)}&title=${encodeURIComponent(title)}`)).json();
+  if (data.error) {
+    document.getElementById('editMsg').innerHTML = `<p class="refused">${data.error}</p>`;
+    return;
+  }
+  currentEdit = {file, title};
+  document.getElementById('editTitle').value = data.title;
+  document.getElementById('editContent').value = data.text;
+  document.getElementById('editMsg').textContent = `Loaded "${title}" from ${file}. Edit and save, or delete it.`;
+}
+
+async function saveEdit() {
+  if (!currentEdit) {
+    document.getElementById('editMsg').innerHTML = `<p class="refused">Load a note first.</p>`;
+    return;
+  }
+  const data = await (await fetch('/api/notes', {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({file: currentEdit.file, old_title: currentEdit.title,
+      title: document.getElementById('editTitle').value.trim(),
+      content: document.getElementById('editContent').value.trim()})
+  })).json();
+  const msg = document.getElementById('editMsg');
+  if (data.saved) {
+    msg.innerHTML = `<p class="ok">Updated: "${data.title}" in ${data.file}. Try asking about it now.</p>`;
+    currentEdit = {file: data.file, title: data.title};
+    refreshList();
+  } else {
+    msg.innerHTML = `<p class="refused">${data.error || 'Could not save.'}</p>`;
+  }
+}
+
+async function deleteNote() {
+  if (!currentEdit) {
+    document.getElementById('editMsg').innerHTML = `<p class="refused">Load a note first.</p>`;
+    return;
+  }
+  if (!confirm(`Delete "${currentEdit.title}" from ${currentEdit.file}?`)) return;
+  const data = await (await fetch('/api/notes', {
+    method: 'DELETE', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(currentEdit)
+  })).json();
+  const msg = document.getElementById('editMsg');
+  if (data.deleted) {
+    msg.innerHTML = `<p class="ok">Deleted "${data.title}" from ${data.file}.</p>`;
+    document.getElementById('editTitle').value = '';
+    document.getElementById('editContent').value = '';
+    currentEdit = null;
+    refreshList();
+  } else {
+    msg.innerHTML = `<p class="refused">${data.error || 'Could not delete.'}</p>`;
+  }
+}
+
+async function reloadNotes() {
+  const data = await (await fetch('/api/reload', {method: 'POST'})).json();
+  document.getElementById('reloadMsg').innerHTML =
+    `<p class="ok">Reloaded: ${data.sections} note sections from ${data.files} file(s).</p>`;
+  refreshList();
+}
+
+function tryQ(text) {
+  document.getElementById('q').value = text;
+  ask();
+}
+
+async function ask() {
+  const question = document.getElementById('q').value.trim();
+  if (!question) return;
+  const box = document.getElementById('answer');
+  box.textContent = 'Searching your notes...';
+  const data = await (await fetch('/api/ask', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({question})
+  })).json();
+  if (data.found) {
+    box.innerHTML = `<div class="answer">${data.text}</div>
+      <small>From ${data.source} : ${data.title} (match score: ${data.score})</small>`;
+  } else {
+    box.innerHTML = `<p class="refused">Not in your notes.</p>
+      <small>Add a note on this topic above, then ask again.</small>`;
+  }
+}
+
+async function addNote() {
+  const file = document.getElementById('newfile').value.trim()
+    || document.getElementById('file').value;
+  const title = document.getElementById('title').value.trim();
+  const content = document.getElementById('content').value.trim();
+  const msg = document.getElementById('saved');
+  const data = await (await fetch('/api/notes', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({file, title, content})
+  })).json();
+  if (data.saved) {
+    msg.innerHTML = `<p class="ok">Saved: "${data.title}" into ${data.file}. Try asking about it now.</p>`;
+    document.getElementById('title').value = '';
+    document.getElementById('content').value = '';
+    document.getElementById('newfile').value = '';
+    refreshList();
+  } else {
+    msg.innerHTML = `<p class="refused">${data.error || 'Could not save.'}</p>`;
+  }
+}
+
+refreshList();
+</script>
+</body>
+</html>
