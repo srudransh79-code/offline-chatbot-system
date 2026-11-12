@@ -15,6 +15,22 @@ it only talks to your own computer.
   into `notes/`, reloads its search index at once, and does all the
   searching. A note you just added is searchable immediately.
 
+## Screenshots (running)
+
+The web version running on `http://localhost:8000`:
+
+![Home page](screenshots/01-home.png)
+*Home page — 15 note sections loaded from 2 files, with suggested questions.*
+
+![Answered question](screenshots/02-answer-3nf.png)
+*"what is 3NF?" answered from dbms.md (match score 5.6).*
+
+![Refusal](screenshots/03-refusal.png)
+*"what is quantum physics?" is refused with "Not in your notes" — it is not in the notes, so no answer is invented.*
+
+![Notes list](screenshots/04-notes-list.png)
+*Notes already in the system, with reload, edit and delete.*
+
 ## Terminal version
 
 A chatbot that answers **only from your own notes** — the opposite of a
